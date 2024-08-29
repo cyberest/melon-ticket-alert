@@ -1,17 +1,28 @@
+# cd CODEBASE\melon-ticket-alert
+# conda activate py311_64_melon
+# python main.py
+
+import time
+from datetime import datetime
 import requests
 
+LAST_MSG = ""
+
 def main() -> None:
-    seats = get_seats_summary()
-    messages = check_remaining_seats(seats['summary'])
-    send_message(messages)
+    print(f"실행시각: {datetime.now()}")
+    while True:
+        seats = get_seats_summary()
+        messages = check_remaining_seats(seats['summary'])
+        send_message(messages)
+        time.sleep(2)
 
 def get_seats_summary() -> None:
     url = "https://ticket.melon.com/tktapi/product/block/summary.json?v=1" 
    
     body = {
-        'prodId': '209371',
+        'prodId': '210230',
         'pocCode': 'SC0002',
-        'scheduleNo': '100002',
+        'scheduleNo': '100001',
         'perfDate': '',
         'seatGradeNo': '',
         'corpCodeNo': ''
@@ -28,23 +39,49 @@ def get_seats_summary() -> None:
     }
 
     response = requests.post(url,headers=header,data=body)
+    if response.status_code != 200:
+        send_message(['HTTP 응답이 비정상입니다.'], test_mode=True)
+    if datetime.now().minute == 0 and datetime.now().second < 3:
+        print(datetime.now())
+        print(response.text[:50])
     return response.json()
 
 def check_remaining_seats(seats: list) -> list:
     result = []
-    
+
     for seat in seats:
         if seat['realSeatCntlk'] > 0:
-            result.append(generate_message(seat))
-
+            msg = generate_message(seat)
+            if msg:
+                result.append(msg)
     return result
 
-def send_message(messages: list) -> None:
-    slack_webhook_url = ""
+def send_message(messages: list, test_mode: bool = False) -> None:
+    TOKEN = "336869194:AAGXm2pNBgJPHYh1Pl-J8Flm5apIfYyl8Ic"
+    BASE_URL = f"https://api.telegram.org/bot{TOKEN}/"
+    CHAT_ID = "-4556315342"
+    CHAT_ID_TEST = "-258256236"
+
     for message in messages:
-        response = requests.post(slack_webhook_url, json={'text' : message})
+        params = {
+            "chat_id": CHAT_ID_TEST if test_mode else CHAT_ID,
+            "text": message.encode("utf-8"),
+            "no_preview": True
+        }
+        response = requests.post(BASE_URL + "sendMessage", params=params)
+        if response.status_code == 200:
+            print(message)
+            return True
+        else:
+            return False
    
 def generate_message(seat: dict) -> str: 
-    return seat['seatGradeName'] + ", " + seat['floorNo'] + seat['floorName'] + " " + seat['areaNo'] + seat['areaName'] + "에 잔여좌석 " + str(seat['realSeatCntlk']) + "개 발생! "
+    message = seat['seatGradeName'] + ", " + seat['floorNo'] + seat['floorName'] + " " + seat['areaNo'] + seat['areaName'] + "에 잔여좌석 " + str(seat['realSeatCntlk']) + "개 발생!"
+    global LAST_MSG
+    if LAST_MSG == message: 
+        return None
+    else:    
+        LAST_MSG = message
+        return message
 
 main()
